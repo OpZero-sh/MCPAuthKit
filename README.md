@@ -2,6 +2,8 @@
 
 **OAuth for MCP servers, solved.**
 
+[AuthKit.open0p.com](https://authkit.open0p.com)
+
 A standalone Cloudflare Worker that implements the complete MCP OAuth specification so you don't have to. Built by [OpZero.sh](https://opzero.sh) to solve our own OAuth nightmare — now open for anyone to learn from.
 
 > **Status:** Running in production at `authkit.open0p.com`, powering OAuth for [OpZero.sh](https://opzero.sh).
