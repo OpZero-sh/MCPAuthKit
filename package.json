@@ -1,0 +1,34 @@
+{
+  "name": "mcp-authkit",
+  "version": "0.1.0",
+  "description": "OAuth 2.1 gateway for MCP servers — Cloudflare Worker + D1",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "db:init": "wrangler d1 execute mcp-authkit-db --file=schema.sql",
+    "db:init:local": "wrangler d1 execute mcp-authkit-db --local --file=schema.sql",
+    "test": "bash scripts/test-flow.sh"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "oauth",
+    "cloudflare-workers",
+    "model-context-protocol",
+    "pkce",
+    "authorization-server",
+    "rfc9728",
+    "rfc8414",
+    "rfc7591"
+  ],
+  "license": "MIT",
+  "author": "OpZero.sh (https://opzero.sh)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/opzero-sh/mcp-authkit"
+  }
+}

@@ -1,0 +1,20 @@
+name = "mcp-authkit"
+main = "src/worker.js"
+compatibility_date = "2024-12-01"
+
+[vars]
+SALT = "change-me-to-a-random-string"
+
+# Set via: wrangler secret put ADMIN_KEY
+# Used to authenticate /api/servers registration endpoint
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mcp-authkit-db"
+database_id = "YOUR_DATABASE_ID"  # Replace after: wrangler d1 create mcp-authkit-db
+
+# Custom domain (optional — requires zone on Cloudflare)
+# [env.production]
+# routes = [
+#   { pattern = "authkit.yourdomain.com/*", zone_name = "yourdomain.com" }
+# ]
