@@ -11,7 +11,7 @@ SALT = "change-me-to-a-random-string"
 [[d1_databases]]
 binding = "DB"
 database_name = "mcp-authkit-db"
-database_id = "YOUR_DATABASE_ID"  # Replace after: wrangler d1 create mcp-authkit-db
+database_id = "d8c71aec-fef5-4cb4-8193-7ca389316c08"
 
 # Custom domain (optional — requires zone on Cloudflare)
 # [env.production]

@@ -68,6 +68,9 @@ export default {
       if (path === '/.well-known/oauth-authorization-server') {
         return handleAuthServerMetadata(url, env);
       }
+      if (path === '/.well-known/openid-configuration') {
+        return handleOpenIDConfiguration(url, env);
+      }
 
       // ── OAuth Endpoints ──
       if (path === '/oauth/register' && method === 'POST') {
@@ -148,6 +151,28 @@ function handleAuthServerMetadata(url, env) {
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
     scopes_supported: ['openid', 'profile', 'email', 'mcp:tools', 'mcp:deploy', 'mcp:read', 'mcp:write'],
     subject_types_supported: ['public'],
+  });
+}
+
+// ─── OpenID Connect Discovery 1.0 ────────────────────────────────────────────
+
+function handleOpenIDConfiguration(url, env) {
+  const issuer = `${url.protocol}//${url.host}`;
+  return jsonResponse({
+    issuer,
+    authorization_endpoint: `${issuer}/oauth/authorize`,
+    token_endpoint: `${issuer}/oauth/token`,
+    registration_endpoint: `${issuer}/oauth/register`,
+    revocation_endpoint: `${issuer}/oauth/revoke`,
+    userinfo_endpoint: `${issuer}/oauth/userinfo`,
+    jwks_uri: `${issuer}/.well-known/jwks.json`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+    scopes_supported: ['openid', 'profile', 'email', 'mcp:tools', 'mcp:deploy', 'mcp:read', 'mcp:write'],
+    subject_types_supported: ['public'],
+    id_token_signing_alg_values_supported: ['RS256'],
   });
 }
 
