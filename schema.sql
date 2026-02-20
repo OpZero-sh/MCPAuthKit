@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 );
 
 -----------------------------------------------------------
--- Users who authenticate through the consent screen
+-- Users (legacy D1 table — canonical users live in Neon authkit_users)
 -----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
   id              TEXT PRIMARY KEY,          -- usr_xxx
@@ -45,11 +45,12 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
 
 -----------------------------------------------------------
 -- Authorization codes (short-lived, single-use)
+-- user_id references Neon authkit_users (no D1 FK)
 -----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS auth_codes (
   code_hash               TEXT PRIMARY KEY,  -- SHA-256 of code_xxx
   client_id               TEXT NOT NULL,
-  user_id                 TEXT NOT NULL,
+  user_id                 TEXT NOT NULL,      -- Neon authkit_users.id
   server_id               TEXT NOT NULL,
   redirect_uri            TEXT NOT NULL,
   scope                   TEXT,
@@ -57,9 +58,7 @@ CREATE TABLE IF NOT EXISTS auth_codes (
   code_challenge_method   TEXT DEFAULT 'S256',
   expires_at              TEXT NOT NULL,      -- 10 minutes from creation
   used                    INTEGER DEFAULT 0,
-  created_at              TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id),
-  FOREIGN KEY (user_id) REFERENCES users(id)
+  created_at              TEXT DEFAULT (datetime('now'))
 );
 
 -----------------------------------------------------------
