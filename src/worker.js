@@ -82,6 +82,9 @@ export default {
       if (path === '/.well-known/oauth-authorization-server') {
         return handleAuthServerMetadata(url, env);
       }
+      if (path === '/.well-known/openid-configuration') {
+        return handleOpenIdCompatibilityMetadata(url, env);
+      }
       // ── OAuth Endpoints ──
       if (path === '/oauth/register' && method === 'POST') {
         return await handleClientRegistration(request, env);
@@ -162,6 +165,12 @@ function handleAuthServerMetadata(url, env) {
     scopes_supported: ['openid', 'profile', 'email', 'mcp:tools', 'mcp:deploy', 'mcp:read', 'mcp:write'],
     subject_types_supported: ['public'],
   });
+}
+
+// Compatibility endpoint for clients that probe OpenID discovery first.
+// Intentionally mirrors RFC 8414 metadata and does not advertise OIDC/JWKS fields.
+function handleOpenIdCompatibilityMetadata(url, env) {
+  return handleAuthServerMetadata(url, env);
 }
 
 // ─── Protected Resource Metadata Generator ───────────────────────────────────
