@@ -84,43 +84,43 @@ export default {
       }
       // ── OAuth Endpoints ──
       if (path === '/oauth/register' && method === 'POST') {
-        return handleClientRegistration(request, env);
+        return await handleClientRegistration(request, env);
       }
       if (path === '/oauth/authorize' && method === 'GET') {
-        return handleAuthorize(request, url, env);
+        return await handleAuthorize(request, url, env);
       }
       if (path === '/oauth/authorize' && method === 'POST') {
-        return handleAuthorizeSubmit(request, url, env);
+        return await handleAuthorizeSubmit(request, url, env);
       }
       if (path === '/oauth/token' && method === 'POST') {
-        return handleToken(request, env);
+        return await handleToken(request, env);
       }
       if (path === '/oauth/revoke' && method === 'POST') {
-        return handleRevoke(request, env);
+        return await handleRevoke(request, env);
       }
       if (path === '/oauth/userinfo' && method === 'GET') {
-        return handleUserInfo(request, env);
+        return await handleUserInfo(request, env);
       }
 
       // ── Server Registration API ──
       if (path === '/api/servers' && method === 'POST') {
-        return handleRegisterServer(request, env);
+        return await handleRegisterServer(request, env);
       }
       if (path === '/api/servers' && method === 'GET') {
-        return handleListServers(request, env);
+        return await handleListServers(request, env);
       }
 
       // ── PRM Generator (for MCP servers to use) ──
       if (path.startsWith('/prm/') && method === 'GET') {
-        return handlePRM(path, url, env);
+        return await handlePRM(path, url, env);
       }
 
       // ── Login / Signup (minimal for MVP) ──
       if (path === '/auth/signup' && method === 'POST') {
-        return handleSignup(request, env);
+        return await handleSignup(request, env);
       }
       if (path === '/auth/login' && method === 'POST') {
-        return handleLogin(request, env);
+        return await handleLogin(request, env);
       }
 
       // ── Health ──
@@ -138,8 +138,8 @@ export default {
       return jsonResponse({ error: 'not_found', message: `No route for ${method} ${path}` }, 404);
 
     } catch (err) {
-      console.error('Worker error:', err);
-      return jsonResponse({ error: 'server_error', message: err.message }, 500);
+      console.error('Worker error:', err?.message, err?.stack);
+      return jsonResponse({ error: 'server_error', message: err?.message || String(err), stack: err?.stack }, 500);
     }
   },
 };
@@ -296,8 +296,9 @@ async function handleAuthorizeSubmit(request, url, env) {
       user = { id: userId, email, name };
     } catch (e) {
       if (e.message?.includes('unique') || e.message?.includes('duplicate')) {
+        const clientRow = await env.DB.prepare('SELECT client_name FROM oauth_clients WHERE client_id = ?').bind(clientId).first();
         return new Response(getConsentHTML({
-          clientName: (await env.DB.prepare('SELECT client_name FROM oauth_clients WHERE client_id = ?').bind(clientId).first())?.client_name || 'App',
+          clientName: clientRow?.client_name || 'App',
           clientId, redirectUri, scope, state, codeChallenge, codeChallengeMethod,
           error: 'Email already registered. Please log in instead.',
         }), { headers: { 'Content-Type': 'text/html' } });
@@ -311,8 +312,9 @@ async function handleAuthorizeSubmit(request, url, env) {
     user = rows[0] || null;
 
     if (!user) {
+      const clientRow = await env.DB.prepare('SELECT client_name FROM oauth_clients WHERE client_id = ?').bind(clientId).first();
       return new Response(getConsentHTML({
-        clientName: (await env.DB.prepare('SELECT client_name FROM oauth_clients WHERE client_id = ?').bind(clientId).first())?.client_name || 'App',
+        clientName: clientRow?.client_name || 'App',
         clientId, redirectUri, scope, state, codeChallenge, codeChallengeMethod,
         error: 'Invalid email or password.',
       }), { headers: { 'Content-Type': 'text/html' } });
@@ -336,7 +338,7 @@ async function handleAuthorizeSubmit(request, url, env) {
   const redirect = new URL(redirectUri);
   redirect.searchParams.set('code', code);
   if (state) redirect.searchParams.set('state', state);
-  
+
   return Response.redirect(redirect.toString(), 302);
 }
 
