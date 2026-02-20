@@ -30,5 +30,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/opzero-sh/mcp-authkit"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2"
   }
 }

@@ -1,16 +1,30 @@
 /**
  * MCP AuthKit — OAuth Gateway for MCP Servers
- * 
+ *
  * A standalone Cloudflare Worker that implements the complete MCP OAuth spec:
  * - RFC 9728 Protected Resource Metadata
  * - RFC 8414 Authorization Server Metadata
  * - RFC 7591 Dynamic Client Registration
  * - OAuth 2.1 with PKCE (S256)
  * - Token refresh & revocation
- * 
+ *
  * Any MCP server can point its `authorization_servers` here
  * instead of implementing OAuth from scratch.
+ *
+ * Users are stored in the shared Neon PostgreSQL database (authkit_users table).
+ * OAuth tables (clients, tokens, codes, servers) remain in Cloudflare D1.
  */
+
+import { neon } from '@neondatabase/serverless';
+
+// ─── Neon (PostgreSQL) Helper ───────────────────────────────────────────────
+
+function getNeonSql(env) {
+  if (!env.POSTGRES_URL) {
+    throw new Error('POSTGRES_URL secret is not configured');
+  }
+  return neon(env.POSTGRES_URL);
+}
 
 // ─── Crypto Helpers ──────────────────────────────────────────────────────────
 
@@ -268,19 +282,20 @@ async function handleAuthorizeSubmit(request, url, env) {
     return redirectWithError(redirectUri, state, 'access_denied', 'User denied the request');
   }
 
-  // Authenticate user
+  // Authenticate user against Neon (authkit_users table)
+  const sql = getNeonSql(env);
   let user;
   if (authMode === 'signup') {
     const name = formData.get('name') || email.split('@')[0];
     const passwordHash = await sha256(password + (env.SALT || 'mcp-authkit-salt'));
     const userId = generateId('usr_', 20);
-    
+
     try {
-      await env.DB.prepare('INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)')
-        .bind(userId, email, name, passwordHash).run();
+      await sql`INSERT INTO authkit_users (id, email, name, password_hash, created_at)
+                VALUES (${userId}, ${email}, ${name}, ${passwordHash}, ${new Date().toISOString()})`;
       user = { id: userId, email, name };
     } catch (e) {
-      if (e.message?.includes('UNIQUE')) {
+      if (e.message?.includes('unique') || e.message?.includes('duplicate')) {
         return new Response(getConsentHTML({
           clientName: (await env.DB.prepare('SELECT client_name FROM oauth_clients WHERE client_id = ?').bind(clientId).first())?.client_name || 'App',
           clientId, redirectUri, scope, state, codeChallenge, codeChallengeMethod,
@@ -291,9 +306,10 @@ async function handleAuthorizeSubmit(request, url, env) {
     }
   } else {
     const passwordHash = await sha256(password + (env.SALT || 'mcp-authkit-salt'));
-    user = await env.DB.prepare('SELECT * FROM users WHERE email = ? AND password_hash = ?')
-      .bind(email, passwordHash).first();
-    
+    const rows = await sql`SELECT id, email, name FROM authkit_users
+                           WHERE email = ${email} AND password_hash = ${passwordHash}`;
+    user = rows[0] || null;
+
     if (!user) {
       return new Response(getConsentHTML({
         clientName: (await env.DB.prepare('SELECT client_name FROM oauth_clients WHERE client_id = ?').bind(clientId).first())?.client_name || 'App',
@@ -486,7 +502,14 @@ async function handleUserInfo(request, env) {
     return jsonResponse({ error: 'invalid_token' }, 401);
   }
 
-  const user = await env.DB.prepare('SELECT id, email, name FROM users WHERE id = ?').bind(stored.user_id).first();
+  // Fetch user from Neon
+  const sql = getNeonSql(env);
+  const rows = await sql`SELECT id, email, name FROM authkit_users WHERE id = ${stored.user_id}`;
+  const user = rows[0];
+
+  if (!user) {
+    return jsonResponse({ error: 'invalid_token', error_description: 'User not found' }, 401);
+  }
 
   return jsonResponse({
     sub: user.id,
@@ -499,21 +522,22 @@ async function handleUserInfo(request, env) {
 
 async function validateToken(token, env) {
   const tokenHash = await sha256(token);
-  const stored = await env.DB.prepare(`
-    SELECT at.*, u.email, u.name 
-    FROM access_tokens at 
-    JOIN users u ON at.user_id = u.id 
-    WHERE at.token_hash = ? AND at.revoked = 0
-  `).bind(tokenHash).first();
+  // Token lives in D1
+  const stored = await env.DB.prepare('SELECT * FROM access_tokens WHERE token_hash = ? AND revoked = 0').bind(tokenHash).first();
 
   if (!stored || new Date(stored.expires_at) < new Date()) {
     return null;
   }
 
+  // User lives in Neon
+  const sql = getNeonSql(env);
+  const rows = await sql`SELECT id, email, name FROM authkit_users WHERE id = ${stored.user_id}`;
+  const user = rows[0];
+
   return {
     user_id: stored.user_id,
-    email: stored.email,
-    name: stored.name,
+    email: user?.email,
+    name: user?.name,
     scope: stored.scope,
     server_id: stored.server_id,
     expires_at: stored.expires_at,
@@ -580,13 +604,14 @@ async function handleSignup(request, env) {
   const { email, password, name } = await request.json();
   const passwordHash = await sha256(password + (env.SALT || 'mcp-authkit-salt'));
   const userId = generateId('usr_', 20);
+  const sql = getNeonSql(env);
 
   try {
-    await env.DB.prepare('INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)')
-      .bind(userId, email, name || email.split('@')[0], passwordHash).run();
+    await sql`INSERT INTO authkit_users (id, email, name, password_hash, created_at)
+              VALUES (${userId}, ${email}, ${name || email.split('@')[0]}, ${passwordHash}, ${new Date().toISOString()})`;
     return jsonResponse({ user_id: userId, email }, 201);
   } catch (e) {
-    if (e.message?.includes('UNIQUE')) {
+    if (e.message?.includes('unique') || e.message?.includes('duplicate')) {
       return jsonResponse({ error: 'email_exists', message: 'Email already registered' }, 409);
     }
     throw e;
@@ -596,8 +621,10 @@ async function handleSignup(request, env) {
 async function handleLogin(request, env) {
   const { email, password } = await request.json();
   const passwordHash = await sha256(password + (env.SALT || 'mcp-authkit-salt'));
-  const user = await env.DB.prepare('SELECT id, email, name FROM users WHERE email = ? AND password_hash = ?')
-    .bind(email, passwordHash).first();
+  const sql = getNeonSql(env);
+  const rows = await sql`SELECT id, email, name FROM authkit_users
+                         WHERE email = ${email} AND password_hash = ${passwordHash}`;
+  const user = rows[0] || null;
 
   if (!user) {
     return jsonResponse({ error: 'invalid_credentials' }, 401);
