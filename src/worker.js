@@ -131,6 +131,14 @@ export default {
         return jsonResponse({ status: 'ok', service: 'mcp-authkit', version: '0.1.0' });
       }
 
+      // ── Blog ──
+      if (path.startsWith('/blog/') && method === 'GET') {
+        const slug = path.replace('/blog/', '');
+        if (slug) {
+          return await handleBlogPost(slug, env);
+        }
+      }
+
       // ── Landing page ──
       if (path === '/') {
         return new Response(getLandingHTML(), {
@@ -654,6 +662,119 @@ function redirectWithError(redirectUri, state, error, description) {
   if (description) redirect.searchParams.set('error_description', description);
   if (state) redirect.searchParams.set('state', state);
   return Response.redirect(redirect.toString(), 302);
+}
+
+// ─── Blog Post Handler ───────────────────────────────────────────────────────
+
+async function handleBlogPost(slug, env) {
+  const sql = getNeonSql(env);
+  const rows = await sql`SELECT title, content, format, dependencies FROM posts WHERE slug = ${slug} AND published = true LIMIT 1`;
+  const post = rows[0];
+
+  if (!post) {
+    return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/html' } });
+  }
+
+  let renderedContent;
+  if (post.format === 'artifact') {
+    const srcdoc = buildArtifactSrcdoc(post.content, post.dependencies);
+    renderedContent = `<iframe sandbox="allow-scripts allow-same-origin" srcdoc="${escapeAttr(srcdoc)}" style="width:100%;min-height:80vh;border:none;" loading="lazy"></iframe>`;
+  } else if (post.format === 'html') {
+    renderedContent = post.content;
+  } else {
+    // markdown — rendered as-is (assumes pre-rendered HTML or client-side rendering)
+    renderedContent = post.content;
+  }
+
+  return new Response(getBlogPostHTML(post.title, renderedContent), {
+    headers: { 'Content-Type': 'text/html' },
+  });
+}
+
+function buildArtifactSrcdoc(componentCode, dependencies) {
+  const deps = (typeof dependencies === 'string' ? JSON.parse(dependencies) : dependencies) || {};
+
+  const importMapEntries = {
+    'react': 'https://esm.sh/react@18',
+    'react-dom': 'https://esm.sh/react-dom@18',
+    'react-dom/client': 'https://esm.sh/react-dom@18/client',
+    'react/jsx-runtime': 'https://esm.sh/react@18/jsx-runtime',
+  };
+
+  for (const [pkg, version] of Object.entries(deps)) {
+    importMapEntries[pkg] = `https://esm.sh/${pkg}@${version}`;
+  }
+
+  const importMap = JSON.stringify({ imports: importMapEntries }, null, 2);
+
+  // The component code uses `export default`, so we capture the default export
+  // by replacing it with a variable assignment that we can reference when mounting.
+  const mountCode = componentCode
+    .replace(/export\s+default\s+function\s+/, 'function ')
+    .replace(/export\s+default\s+/, 'const __Component__ = ');
+
+  // Extract the function name if it was a named export default function
+  const funcNameMatch = componentCode.match(/export\s+default\s+function\s+(\w+)/);
+  const componentRef = funcNameMatch ? funcNameMatch[1] : '__Component__';
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script type="importmap">
+${importMap}
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module">
+    import React from 'react';
+    import { createRoot } from 'react-dom/client';
+
+    ${mountCode}
+
+    createRoot(document.getElementById('root')).render(React.createElement(${componentRef}));
+  </script>
+</body>
+</html>`;
+}
+
+function escapeAttr(str) {
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function getBlogPostHTML(title, content) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} — OpZero Blog</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e5e5e5; min-height: 100vh; }
+    header { border-bottom: 1px solid #1f1f1f; padding: 16px 24px; }
+    header a { color: #22c55e; text-decoration: none; font-size: 14px; letter-spacing: 1px; }
+    .content { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
+    h1 { font-size: 32px; font-weight: 700; margin-bottom: 32px; color: #fafafa; }
+    iframe { width: 100%; min-height: 80vh; border: none; border-radius: 8px; background: #fff; }
+    footer { border-top: 1px solid #1f1f1f; padding: 24px; text-align: center; color: #525252; font-size: 13px; margin-top: 48px; }
+  </style>
+</head>
+<body>
+  <header><a href="/">OpZero</a></header>
+  <div class="content">
+    <h1>${title}</h1>
+    ${content}
+  </div>
+  <footer>OpZero.sh</footer>
+</body>
+</html>`;
 }
 
 // ─── Consent Screen HTML ─────────────────────────────────────────────────────
