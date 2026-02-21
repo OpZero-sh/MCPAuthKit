@@ -248,10 +248,30 @@ async function handleAuthorize(request, url, env) {
   const codeChallenge = params.get('code_challenge');
   const codeChallengeMethod = params.get('code_challenge_method') || 'S256';
 
-  // Validate client
-  const client = await env.DB.prepare('SELECT * FROM oauth_clients WHERE client_id = ?').bind(clientId).first();
+  // Validate client — auto-register if unknown (supports web clients that
+  // skip Dynamic Client Registration, while MCP clients already register
+  // via /oauth/register and will be found here as before).
+  let client = await env.DB.prepare('SELECT * FROM oauth_clients WHERE client_id = ?').bind(clientId).first();
   if (!client) {
-    return jsonResponse({ error: 'invalid_client', error_description: 'Unknown client_id' }, 400);
+    if (!clientId || !redirectUri) {
+      return jsonResponse({ error: 'invalid_client', error_description: 'client_id and redirect_uri are required' }, 400);
+    }
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO oauth_clients (client_id, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, server_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      clientId,
+      `Web Client (${clientId})`,
+      JSON.stringify([redirectUri]),
+      JSON.stringify(['authorization_code', 'refresh_token']),
+      JSON.stringify(['code']),
+      'none',
+      null
+    ).run();
+    client = await env.DB.prepare('SELECT * FROM oauth_clients WHERE client_id = ?').bind(clientId).first();
+    if (!client) {
+      return jsonResponse({ error: 'server_error', error_description: 'Failed to register client' }, 500);
+    }
   }
 
   // Validate redirect_uri
