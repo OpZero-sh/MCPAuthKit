@@ -257,11 +257,11 @@ async function handleAuthorize(request, url, env) {
       return jsonResponse({ error: 'invalid_client', error_description: 'client_id and redirect_uri are required' }, 400);
     }
     await env.DB.prepare(`
-      INSERT INTO oauth_clients (client_id, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, server_id)
+      INSERT OR IGNORE INTO oauth_clients (client_id, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, server_id)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).bind(
       clientId,
-      'Web Client',
+      `Web Client (${clientId})`,
       JSON.stringify([redirectUri]),
       JSON.stringify(['authorization_code', 'refresh_token']),
       JSON.stringify(['code']),
@@ -269,6 +269,9 @@ async function handleAuthorize(request, url, env) {
       null
     ).run();
     client = await env.DB.prepare('SELECT * FROM oauth_clients WHERE client_id = ?').bind(clientId).first();
+    if (!client) {
+      return jsonResponse({ error: 'server_error', error_description: 'Failed to register client' }, 500);
+    }
   }
 
   // Validate redirect_uri
