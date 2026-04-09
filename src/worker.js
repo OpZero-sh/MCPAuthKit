@@ -26,6 +26,71 @@ function getNeonSql(env) {
   return neon(env.POSTGRES_URL);
 }
 
+/**
+ * Dual-write an access token to Neon so OpZero can validate it
+ * via shared DB lookup without a remote call.
+ * Table is auto-created if missing.
+ */
+async function syncAccessTokenToNeon(env, { tokenHash, clientId, userId, serverId, scope, expiresAt }) {
+  try {
+    const sql = getNeonSql(env);
+    await sql`
+      INSERT INTO authkit_access_tokens (token_hash, client_id, user_id, server_id, scope, expires_at, revoked, created_at)
+      VALUES (${tokenHash}, ${clientId}, ${userId}, ${serverId}, ${scope}, ${expiresAt}, 0, ${new Date().toISOString()})
+      ON CONFLICT (token_hash) DO NOTHING
+    `;
+  } catch (e) {
+    // If table doesn't exist, create it and retry once
+    if (e.message?.includes('does not exist') || e.message?.includes('relation')) {
+      const sql = getNeonSql(env);
+      await sql`
+        CREATE TABLE IF NOT EXISTS authkit_access_tokens (
+          token_hash  TEXT PRIMARY KEY,
+          client_id   TEXT NOT NULL,
+          user_id     TEXT NOT NULL,
+          server_id   TEXT NOT NULL DEFAULT 'default',
+          scope       TEXT,
+          expires_at  TEXT NOT NULL,
+          revoked     INTEGER DEFAULT 0,
+          created_at  TEXT DEFAULT (now())
+        )
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS authkit_oauth_clients (
+          client_id    TEXT PRIMARY KEY,
+          client_name  TEXT,
+          redirect_uris TEXT,
+          server_id    TEXT,
+          created_at   TEXT DEFAULT (now())
+        )
+      `;
+      await sql`
+        INSERT INTO authkit_access_tokens (token_hash, client_id, user_id, server_id, scope, expires_at, revoked, created_at)
+        VALUES (${tokenHash}, ${clientId}, ${userId}, ${serverId}, ${scope}, ${expiresAt}, 0, ${new Date().toISOString()})
+        ON CONFLICT (token_hash) DO NOTHING
+      `;
+    } else {
+      console.error('Neon token sync failed:', e.message);
+    }
+  }
+}
+
+/**
+ * Sync an OAuth client to Neon for OpZero's shared DB lookup.
+ */
+async function syncOAuthClientToNeon(env, { clientId, clientName, redirectUris, serverId }) {
+  try {
+    const sql = getNeonSql(env);
+    await sql`
+      INSERT INTO authkit_oauth_clients (client_id, client_name, redirect_uris, server_id, created_at)
+      VALUES (${clientId}, ${clientName}, ${redirectUris}, ${serverId}, ${new Date().toISOString()})
+      ON CONFLICT (client_id) DO UPDATE SET client_name = EXCLUDED.client_name, redirect_uris = EXCLUDED.redirect_uris
+    `;
+  } catch (e) {
+    console.error('Neon client sync failed:', e.message);
+  }
+}
+
 // ─── Crypto Helpers ──────────────────────────────────────────────────────────
 
 async function sha256(input) {
@@ -213,18 +278,26 @@ async function handleClientRegistration(request, env) {
     return jsonResponse({ error: 'invalid_client_metadata', error_description: 'redirect_uris required' }, 400);
   }
 
+  const clientName = body.client_name || 'Unknown Client';
+  const serverId = body.server_id || null;
+
   await env.DB.prepare(`
     INSERT INTO oauth_clients (client_id, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, server_id)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).bind(
     clientId,
-    body.client_name || 'Unknown Client',
+    clientName,
     JSON.stringify(redirectUris),
     JSON.stringify(body.grant_types || ['authorization_code', 'refresh_token']),
     JSON.stringify(body.response_types || ['code']),
     body.token_endpoint_auth_method || 'none',
-    body.server_id || null
+    serverId
   ).run();
+
+  // Sync to Neon for OpZero shared DB lookup
+  await syncOAuthClientToNeon(env, {
+    clientId, clientName, redirectUris: JSON.stringify(redirectUris), serverId,
+  });
 
   return jsonResponse({
     client_id: clientId,
@@ -460,6 +533,12 @@ async function handleAuthCodeExchange(params, env) {
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(refreshTokenHash, client_id, authCode.user_id, authCode.server_id, authCode.scope, refreshExpiresAt).run();
 
+  // Dual-write access token to Neon for OpZero's shared DB validation
+  await syncAccessTokenToNeon(env, {
+    tokenHash: accessTokenHash, clientId: client_id, userId: authCode.user_id,
+    serverId: authCode.server_id, scope: authCode.scope, expiresAt: accessExpiresAt,
+  });
+
   return jsonResponse({
     access_token: accessToken,
     token_type: 'Bearer',
@@ -497,6 +576,12 @@ async function handleRefreshToken(params, env) {
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(accessTokenHash, client_id, stored.user_id, stored.server_id, stored.scope, accessExpiresAt).run();
 
+  // Dual-write refreshed access token to Neon
+  await syncAccessTokenToNeon(env, {
+    tokenHash: accessTokenHash, clientId: client_id, userId: stored.user_id,
+    serverId: stored.server_id, scope: stored.scope, expiresAt: accessExpiresAt,
+  });
+
   return jsonResponse({
     access_token: accessToken,
     token_type: 'Bearer',
@@ -520,6 +605,14 @@ async function handleRevoke(request, env) {
   // Try revoking from both tables
   await env.DB.prepare('UPDATE access_tokens SET revoked = 1 WHERE token_hash = ?').bind(tokenHash).run();
   await env.DB.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?').bind(tokenHash).run();
+
+  // Also revoke in Neon
+  try {
+    const sql = getNeonSql(env);
+    await sql`UPDATE authkit_access_tokens SET revoked = 1 WHERE token_hash = ${tokenHash}`;
+  } catch (e) {
+    console.error('Neon revocation sync failed:', e.message);
+  }
 
   return new Response(null, { status: 200, headers: corsHeaders() });
 }
