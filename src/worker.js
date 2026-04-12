@@ -911,61 +911,186 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authorize ${clientName} — MCP AuthKit</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#030308">
+  <meta name="color-scheme" content="dark">
+  <title>Authorize ${clientName} — AuthZero</title>
   <style>
+    :root {
+      --bg: #030308;
+      --card: #0c0c12;
+      --card-glass: rgba(255,255,255,0.03);
+      --border: rgba(255,255,255,0.08);
+      --text: #f5f7fa;
+      --muted: #8a8f9a;
+      --primary: #00F5FF;
+      --accent: #8B5CF6;
+      --destructive: #f87171;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0a0a0a; color: #e5e5e5; min-height: 100vh;
+    html, body { min-height: 100vh; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0,245,255,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 120%, rgba(139,92,246,0.08) 0%, transparent 60%),
+        var(--bg);
+      color: var(--text);
       display: flex; align-items: center; justify-content: center;
-      padding: 20px;
+      padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
     }
     .card {
-      background: #141414; border: 1px solid #262626; border-radius: 16px;
-      padding: 40px; max-width: 420px; width: 100%;
+      position: relative;
+      background: linear-gradient(180deg, var(--card) 0%, #07070c 100%);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 36px 32px;
+      max-width: 440px;
+      width: 100%;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 0 40px -10px rgba(0,245,255,0.25), 0 4px 24px -4px rgba(0,0,0,0.4);
     }
-    .logo { font-size: 14px; color: #737373; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 24px; }
-    .logo span { color: #22c55e; }
-    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; color: #fafafa; }
-    .subtitle { color: #a3a3a3; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
-    .client-name { color: #22c55e; font-weight: 600; }
-    .scopes { margin-bottom: 24px; }
-    .scope { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #1f1f1f; font-size: 14px; }
+    .card::before {
+      content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+      background: linear-gradient(135deg, rgba(0,245,255,0.35), rgba(139,92,246,0.15) 50%, transparent);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+              mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+              mask-composite: exclude;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
+    }
+    .brand .ring { position: relative; width: 40px; height: 40px; flex-shrink: 0; }
+    .brand .ring svg { position: absolute; inset: 0; width: 100%; height: 100%; animation: pulse 2s ease-in-out infinite; }
+    .brand .ring .dot {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    }
+    .brand .ring .dot::after {
+      content: ""; width: 10px; height: 10px; border-radius: 50%;
+      background: #fff; box-shadow: 0 0 15px rgba(255,255,255,0.8);
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
+    .brand .wordmark {
+      font-weight: 800; font-size: 20px; letter-spacing: -0.02em; line-height: 1;
+    }
+    .brand .wordmark .z { color: var(--primary); }
+    .brand .tagline {
+      font-size: 9px; letter-spacing: 0.3em; text-transform: uppercase;
+      color: #525866; font-weight: 900; margin-top: 4px;
+    }
+    h1 {
+      font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 6px;
+      background: linear-gradient(90deg, #00F5FF, #8B5CF6);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; line-height: 1.55; }
+    .client-name { color: var(--primary); font-weight: 600; }
+    .scopes {
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 4px 12px;
+      background: rgba(255,255,255,0.02);
+    }
+    .scope {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 13px; color: #c7ccd4;
+    }
     .scope:last-child { border-bottom: none; }
-    .scope-icon { color: #22c55e; font-size: 16px; }
-    .divider { height: 1px; background: #262626; margin: 24px 0; }
-    .tabs { display: flex; gap: 0; margin-bottom: 20px; }
-    .tab { flex: 1; padding: 10px; text-align: center; font-size: 13px; cursor: pointer; 
-           border: 1px solid #262626; color: #737373; transition: all 0.2s; background: transparent; }
-    .tab:first-child { border-radius: 8px 0 0 8px; }
-    .tab:last-child { border-radius: 0 8px 8px 0; }
-    .tab.active { background: #1a1a1a; color: #fafafa; border-color: #404040; }
-    .field { margin-bottom: 16px; }
-    .field label { display: block; font-size: 13px; color: #a3a3a3; margin-bottom: 6px; }
-    .field input { width: 100%; padding: 10px 14px; background: #0a0a0a; border: 1px solid #262626; 
-                   border-radius: 8px; color: #fafafa; font-size: 14px; outline: none; transition: border 0.2s; }
-    .field input:focus { border-color: #22c55e; }
+    .scope-icon {
+      color: var(--primary); font-size: 14px; font-weight: 700;
+      width: 16px; text-align: center;
+    }
+    .divider { height: 1px; background: var(--border); margin: 20px 0; }
+    .tabs {
+      display: flex; gap: 0; margin-bottom: 18px; padding: 3px;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px;
+    }
+    .tab {
+      flex: 1; padding: 9px; text-align: center; font-size: 12px; font-weight: 600;
+      cursor: pointer; border: none; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      transition: all 0.18s; background: transparent; border-radius: 7px;
+    }
+    .tab.active {
+      background: rgba(0,245,255,0.1); color: var(--primary);
+      box-shadow: 0 0 0 1px rgba(0,245,255,0.3);
+    }
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block; font-size: 11px; color: var(--muted);
+      margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
+    }
+    .field input {
+      width: 100%; padding: 11px 14px;
+      background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+      border-radius: 9px; color: var(--text); font-size: 14px;
+      outline: none; transition: border 0.18s, box-shadow 0.18s;
+      font-family: inherit;
+    }
+    .field input::placeholder { color: #525866; }
+    .field input:focus {
+      border-color: rgba(0,245,255,0.6);
+      box-shadow: 0 0 0 3px rgba(0,245,255,0.12);
+    }
     .name-field { display: none; }
-    .actions { display: flex; gap: 12px; margin-top: 24px; }
-    .btn { flex: 1; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600; 
-           cursor: pointer; border: none; transition: all 0.2s; }
-    .btn-allow { background: #22c55e; color: #0a0a0a; }
-    .btn-allow:hover { background: #16a34a; }
-    .btn-deny { background: transparent; border: 1px solid #404040; color: #a3a3a3; }
-    .btn-deny:hover { border-color: #737373; color: #e5e5e5; }
-    .error { background: #371520; border: 1px solid #5c1d2e; color: #f87171; padding: 10px 14px; 
-             border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+    .actions { display: flex; gap: 10px; margin-top: 22px; }
+    .btn {
+      flex: 1; padding: 12px 16px; border-radius: 10px;
+      font-size: 14px; font-weight: 700; font-family: inherit;
+      cursor: pointer; border: 1px solid transparent; transition: all 0.18s;
+      letter-spacing: 0.01em;
+    }
+    .btn-allow {
+      background: var(--primary); color: #050510;
+      box-shadow: 0 0 20px -4px rgba(0,245,255,0.4);
+    }
+    .btn-allow:hover { background: #33f8ff; box-shadow: 0 0 30px -4px rgba(0,245,255,0.6); }
+    .btn-deny {
+      background: transparent; border-color: var(--border); color: var(--muted);
+    }
+    .btn-deny:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+    .error {
+      background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.3);
+      color: var(--destructive); padding: 10px 14px;
+      border-radius: 9px; font-size: 13px; margin-bottom: 16px;
+    }
+    .footer-note {
+      margin-top: 18px; text-align: center; font-size: 11px;
+      color: #4a5060; letter-spacing: 0.04em;
+    }
+    .footer-note .sep { color: rgba(255,255,255,0.1); margin: 0 8px; }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="logo">🔐 MCP <span>AuthKit</span></div>
+    <div class="brand">
+      <div class="ring">
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="45" stroke="url(#az-grad)" stroke-width="4" stroke-dasharray="10 5" />
+          <defs>
+            <linearGradient id="az-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#00F5FF" />
+              <stop offset="100%" stop-color="#8B5CF6" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <div class="dot"></div>
+      </div>
+      <div>
+        <div class="wordmark">Auth<span class="z">Zero</span></div>
+        <div class="tagline">Identity for AI agents</div>
+      </div>
+    </div>
+
     <h1>Authorize Connection</h1>
-    <p class="subtitle"><span class="client-name">${clientName}</span> wants to connect to your account and access the following:</p>
-    
+    <p class="subtitle"><span class="client-name">${clientName}</span> wants to connect to your account and access:</p>
+
     <div class="scopes">
-      ${scopes.map(s => `<div class="scope"><span class="scope-icon">✓</span> ${scopeLabels[s] || s}</div>`).join('')}
+      ${scopes.map(s => `<div class="scope"><span class="scope-icon">&#10003;</span> ${scopeLabels[s] || s}</div>`).join('')}
     </div>
 
     <div class="divider"></div>
@@ -973,8 +1098,8 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
     ${error ? `<div class="error">${error}</div>` : ''}
 
     <div class="tabs">
-      <button class="tab active" onclick="switchTab('login')" id="tab-login">Log In</button>
-      <button class="tab" onclick="switchTab('signup')" id="tab-signup">Sign Up</button>
+      <button class="tab active" onclick="switchTab('login')" id="tab-login" type="button">Log In</button>
+      <button class="tab" onclick="switchTab('signup')" id="tab-signup" type="button">Sign Up</button>
     </div>
 
     <form method="POST" action="/oauth/authorize" id="auth-form">
@@ -988,17 +1113,17 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
 
       <div class="field name-field" id="name-field">
         <label for="name">Name</label>
-        <input type="text" id="name" name="name" placeholder="Your name" />
+        <input type="text" id="name" name="name" placeholder="Your name" autocomplete="name" />
       </div>
 
       <div class="field">
         <label for="email">Email</label>
-        <input type="email" id="email" name="email" placeholder="you@example.com" required />
+        <input type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email" />
       </div>
 
       <div class="field">
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" placeholder="••••••••" required minlength="8" />
+        <input type="password" id="password" name="password" placeholder="••••••••" required minlength="8" autocomplete="current-password" />
       </div>
 
       <div class="actions">
@@ -1006,6 +1131,10 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
         <button type="submit" name="action" value="allow" class="btn btn-allow">Allow</button>
       </div>
     </form>
+
+    <div class="footer-note">
+      AUTHZERO <span class="sep">·</span> OAUTH 2.1 <span class="sep">·</span> POWERED BY OPZERO
+    </div>
   </div>
 
   <script>
@@ -1014,6 +1143,8 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
       document.getElementById('tab-login').classList.toggle('active', mode === 'login');
       document.getElementById('tab-signup').classList.toggle('active', mode === 'signup');
       document.getElementById('name-field').style.display = mode === 'signup' ? 'block' : 'none';
+      var pwd = document.getElementById('password');
+      pwd.setAttribute('autocomplete', mode === 'signup' ? 'new-password' : 'current-password');
     }
   </script>
 </body>
