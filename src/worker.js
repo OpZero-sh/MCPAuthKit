@@ -235,7 +235,7 @@ function handleAuthServerMetadata(url, env) {
     grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
-    scopes_supported: ['openid', 'profile', 'email', 'mcp:tools', 'mcp:deploy', 'mcp:read', 'mcp:write'],
+    scopes_supported: ['openid', 'profile', 'email', 'mcp:tools', 'mcp:deploy', 'mcp:read', 'mcp:write', 'agent:ws'],
     subject_types_supported: ['public'],
   });
 }
