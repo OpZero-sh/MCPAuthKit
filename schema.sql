@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   scope         TEXT,
   expires_at    TEXT NOT NULL,
   revoked       INTEGER DEFAULT 0,
+  family_id     TEXT,                        -- fam_xxx — links rotated tokens for replay detection
   created_at    TEXT DEFAULT (datetime('now'))
 );
 
@@ -99,3 +100,10 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_auth_codes_client ON auth_codes(client_id);
 CREATE INDEX IF NOT EXISTS idx_auth_codes_expires ON auth_codes(expires_at);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id);
+
+-----------------------------------------------------------
+-- Migration: add family_id to refresh_tokens
+-- Run on existing DBs: ALTER TABLE refresh_tokens ADD COLUMN family_id TEXT;
+-- CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id);
+-----------------------------------------------------------

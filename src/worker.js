@@ -361,12 +361,18 @@ async function handleAuthorize(request, url, env) {
     return redirectWithError(redirectUri, state, 'invalid_request', 'Only S256 code_challenge_method is supported');
   }
 
+  // Validate requested scopes against supported set
+  const SUPPORTED_SCOPES = ['openid', 'profile', 'email', 'mcp:tools', 'mcp:deploy', 'mcp:read', 'mcp:write', 'agent:ws'];
+  const requestedScopes = scope.split(/\s+/).filter(Boolean);
+  const validatedScopes = requestedScopes.filter(s => SUPPORTED_SCOPES.includes(s));
+  const validatedScope = validatedScopes.length > 0 ? validatedScopes.join(' ') : 'mcp:tools';
+
   // Render consent/login page
   return new Response(getConsentHTML({
     clientName: client.client_name,
     clientId,
     redirectUri,
-    scope,
+    scope: validatedScope,
     state,
     codeChallenge,
     codeChallengeMethod,
@@ -519,7 +525,8 @@ async function handleAuthCodeExchange(params, env) {
   const refreshToken = generateId('mrt_', 40);
   const accessTokenHash = await sha256(accessToken);
   const refreshTokenHash = await sha256(refreshToken);
-  
+  const familyId = generateId('fam_', 16);
+
   const accessExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
   const refreshExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
 
@@ -529,9 +536,9 @@ async function handleAuthCodeExchange(params, env) {
   `).bind(accessTokenHash, client_id, authCode.user_id, authCode.server_id, authCode.scope, accessExpiresAt).run();
 
   await env.DB.prepare(`
-    INSERT INTO refresh_tokens (token_hash, client_id, user_id, server_id, scope, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(refreshTokenHash, client_id, authCode.user_id, authCode.server_id, authCode.scope, refreshExpiresAt).run();
+    INSERT INTO refresh_tokens (token_hash, client_id, user_id, server_id, scope, expires_at, family_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(refreshTokenHash, client_id, authCode.user_id, authCode.server_id, authCode.scope, refreshExpiresAt, familyId).run();
 
   // Dual-write access token to Neon for OpZero's shared DB validation
   await syncAccessTokenToNeon(env, {
@@ -556,7 +563,20 @@ async function handleRefreshToken(params, env) {
   }
 
   const tokenHash = await sha256(refresh_token);
-  const stored = await env.DB.prepare('SELECT * FROM refresh_tokens WHERE token_hash = ? AND revoked = 0').bind(tokenHash).first();
+
+  // Check for replay attack: if the token exists but is already revoked, it was
+  // already rotated — someone is replaying a stolen refresh token.
+  const maybeRevoked = await env.DB.prepare('SELECT * FROM refresh_tokens WHERE token_hash = ?').bind(tokenHash).first();
+  if (maybeRevoked && maybeRevoked.revoked === 1 && maybeRevoked.family_id) {
+    // Revoke ALL tokens in this family (nuclear option per RFC best practice)
+    await env.DB.batch([
+      env.DB.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE family_id = ?').bind(maybeRevoked.family_id),
+      env.DB.prepare('UPDATE access_tokens SET revoked = 1 WHERE user_id = ? AND client_id = ?').bind(maybeRevoked.user_id, maybeRevoked.client_id),
+    ]);
+    return jsonResponse({ error: 'invalid_grant', error_description: 'Refresh token replay detected — all tokens in family revoked' }, 400);
+  }
+
+  const stored = maybeRevoked && maybeRevoked.revoked === 0 ? maybeRevoked : null;
 
   if (!stored || new Date(stored.expires_at) < new Date()) {
     return jsonResponse({ error: 'invalid_grant', error_description: 'Invalid or expired refresh token' }, 400);
@@ -565,6 +585,9 @@ async function handleRefreshToken(params, env) {
   if (stored.client_id !== client_id) {
     return jsonResponse({ error: 'invalid_grant', error_description: 'client_id mismatch' }, 400);
   }
+
+  // Carry forward family_id from the old token (may be NULL for pre-migration tokens)
+  const familyId = stored.family_id;
 
   // Issue new access token + rotated refresh token
   const accessToken = generateId('mat_', 40);
@@ -582,9 +605,9 @@ async function handleRefreshToken(params, env) {
       VALUES (?, ?, ?, ?, ?, ?)
     `).bind(accessTokenHash, client_id, stored.user_id, stored.server_id, stored.scope, accessExpiresAt),
     env.DB.prepare(`
-      INSERT INTO refresh_tokens (token_hash, client_id, user_id, server_id, scope, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(newRefreshTokenHash, client_id, stored.user_id, stored.server_id, stored.scope, refreshExpiresAt),
+      INSERT INTO refresh_tokens (token_hash, client_id, user_id, server_id, scope, expires_at, family_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(newRefreshTokenHash, client_id, stored.user_id, stored.server_id, stored.scope, refreshExpiresAt, familyId),
   ]);
 
   // Dual-write refreshed access token to Neon
