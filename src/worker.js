@@ -566,15 +566,26 @@ async function handleRefreshToken(params, env) {
     return jsonResponse({ error: 'invalid_grant', error_description: 'client_id mismatch' }, 400);
   }
 
-  // Issue new access token
+  // Issue new access token + rotated refresh token
   const accessToken = generateId('mat_', 40);
+  const newRefreshToken = generateId('mrt_', 40);
   const accessTokenHash = await sha256(accessToken);
+  const newRefreshTokenHash = await sha256(newRefreshToken);
   const accessExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const refreshExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  await env.DB.prepare(`
-    INSERT INTO access_tokens (token_hash, client_id, user_id, server_id, scope, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(accessTokenHash, client_id, stored.user_id, stored.server_id, stored.scope, accessExpiresAt).run();
+  // Revoke old refresh token and insert new tokens atomically
+  await env.DB.batch([
+    env.DB.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?').bind(tokenHash),
+    env.DB.prepare(`
+      INSERT INTO access_tokens (token_hash, client_id, user_id, server_id, scope, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(accessTokenHash, client_id, stored.user_id, stored.server_id, stored.scope, accessExpiresAt),
+    env.DB.prepare(`
+      INSERT INTO refresh_tokens (token_hash, client_id, user_id, server_id, scope, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(newRefreshTokenHash, client_id, stored.user_id, stored.server_id, stored.scope, refreshExpiresAt),
+  ]);
 
   // Dual-write refreshed access token to Neon
   await syncAccessTokenToNeon(env, {
@@ -586,6 +597,7 @@ async function handleRefreshToken(params, env) {
     access_token: accessToken,
     token_type: 'Bearer',
     expires_in: 3600,
+    refresh_token: newRefreshToken,
     scope: stored.scope,
   });
 }
