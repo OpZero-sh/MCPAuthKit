@@ -70,10 +70,71 @@ UI_EMAIL=$(curl -sf "$BASE_URL/oauth/userinfo" -H "Authorization: Bearer $AT" | 
 [ "$UI_EMAIL" = "$TEST_EMAIL" ] && pass "UserInfo: $UI_EMAIL" || fail "Email mismatch"
 
 info "Refresh"
-NEW_AT=$(curl -sf -X POST "$BASE_URL/oauth/token" -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=refresh_token&refresh_token=$RT&client_id=$CLIENT_ID" \
-  | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+REFRESH_RESP=$(curl -sf -X POST "$BASE_URL/oauth/token" -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token&refresh_token=$RT&client_id=$CLIENT_ID")
+NEW_AT=$(echo "$REFRESH_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+NEW_RT=$(echo "$REFRESH_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('refresh_token',''))")
 pass "Refreshed: ${NEW_AT:0:20}..."
+
+info "Rotation: new refresh token issued"
+[ -n "$NEW_RT" ] && pass "New RT present: ${NEW_RT:0:20}..." || fail "No refresh_token in refresh response"
+[ "$NEW_RT" != "$RT" ] && pass "NEW_RT differs from original RT" || fail "Refresh token was not rotated"
+
+info "Rotation chain: refresh with NEW_RT"
+REFRESH2_RESP=$(curl -sf -X POST "$BASE_URL/oauth/token" -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token&refresh_token=$NEW_RT&client_id=$CLIENT_ID")
+NEW_AT2=$(echo "$REFRESH2_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+NEW_RT2=$(echo "$REFRESH2_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('refresh_token',''))")
+[ -n "$NEW_RT2" ] && [ "$NEW_RT2" != "$NEW_RT" ] && [ "$NEW_RT2" != "$RT" ] \
+  && pass "Second-gen RT differs from NEW_RT and RT: ${NEW_RT2:0:20}..." \
+  || fail "Rotation chain failed (NEW_RT2 missing or not rotated)"
+
+info "Replay detection: reuse ORIGINAL RT after rotation"
+REPLAY_BODY=$(mktemp)
+REPLAY_STATUS=$(curl -s -o "$REPLAY_BODY" -w "%{http_code}" -X POST "$BASE_URL/oauth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token&refresh_token=$RT&client_id=$CLIENT_ID")
+REPLAY_RESP=$(cat "$REPLAY_BODY")
+rm -f "$REPLAY_BODY"
+[ "$REPLAY_STATUS" = "400" ] && pass "Replay returns HTTP 400" || fail "Replay status was $REPLAY_STATUS, expected 400"
+echo "$REPLAY_RESP" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d.get('error')=='invalid_grant', f\"error was {d.get('error')}\"
+desc=(d.get('error_description') or '').lower()
+assert ('replay' in desc) or ('family' in desc), f\"description did not mention replay/family: {desc}\"
+" && pass "Replay error=invalid_grant with replay/family description" || fail "Replay response did not match expected shape: $REPLAY_RESP"
+
+info "Cascade revocation: NEW_RT2 should be invalidated"
+CASCADE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/oauth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token&refresh_token=$NEW_RT2&client_id=$CLIENT_ID")
+[ "$CASCADE_STATUS" = "400" ] && pass "NEW_RT2 rejected (family revoked)" || fail "NEW_RT2 status $CASCADE_STATUS, expected 400 after cascade"
+
+info "Scope validation: unsupported scope stripped"
+CV2=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+CC2=$(echo -n "$CV2" | openssl dgst -sha256 -binary | base64 | tr '+/' '-_' | tr -d '=')
+AUTH2_RESP=$(curl -s -D- -o /dev/null -X POST "$BASE_URL/oauth/authorize" \
+  --data-urlencode "response_type=code" \
+  --data-urlencode "client_id=$CLIENT_ID" \
+  --data-urlencode "redirect_uri=$REDIRECT_URI" \
+  --data-urlencode "scope=invalid_scope:foo mcp:tools" \
+  --data-urlencode "state=scopetest" \
+  --data-urlencode "code_challenge=$CC2" \
+  --data-urlencode "code_challenge_method=S256" \
+  --data-urlencode "email=$TEST_EMAIL" \
+  --data-urlencode "password=testpass123!" \
+  --data-urlencode "action=approve")
+CODE2=$(echo "$AUTH2_RESP" | grep -i "^location:" | grep -o 'code=[^&]*' | cut -d= -f2)
+[ -n "$CODE2" ] && pass "Auth code issued with mixed scopes" || fail "No auth code for scope test"
+
+TOKEN2_RESP=$(curl -sf -X POST "$BASE_URL/oauth/token" -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=authorization_code&code=$CODE2&redirect_uri=$REDIRECT_URI&client_id=$CLIENT_ID&code_verifier=$CV2")
+GRANTED_SCOPE=$(echo "$TOKEN2_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scope',''))")
+info "Granted scope: '$GRANTED_SCOPE'"
+echo "$GRANTED_SCOPE" | grep -qv "invalid_scope" && echo "$GRANTED_SCOPE" | grep -q "mcp:tools" \
+  && pass "Invalid scope stripped; mcp:tools retained" \
+  || fail "Scope validation failed — got: '$GRANTED_SCOPE'"
 
 info "Revoke + verify"
 curl -sf -X POST "$BASE_URL/oauth/revoke" -d "token=$NEW_AT&client_id=$CLIENT_ID" > /dev/null

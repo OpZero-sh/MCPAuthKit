@@ -361,11 +361,7 @@ async function handleAuthorize(request, url, env) {
     return redirectWithError(redirectUri, state, 'invalid_request', 'Only S256 code_challenge_method is supported');
   }
 
-  // Validate requested scopes against supported set
-  const SUPPORTED_SCOPES = ['openid', 'profile', 'email', 'mcp:tools', 'mcp:deploy', 'mcp:read', 'mcp:write', 'agent:ws'];
-  const requestedScopes = scope.split(/\s+/).filter(Boolean);
-  const validatedScopes = requestedScopes.filter(s => SUPPORTED_SCOPES.includes(s));
-  const validatedScope = validatedScopes.length > 0 ? validatedScopes.join(' ') : 'mcp:tools';
+  const validatedScope = validateScope(scope);
 
   // Render consent/login page
   return new Response(getConsentHTML({
@@ -381,12 +377,21 @@ async function handleAuthorize(request, url, env) {
   });
 }
 
+const SUPPORTED_SCOPES = ['openid', 'profile', 'email', 'mcp:tools', 'mcp:deploy', 'mcp:read', 'mcp:write', 'agent:ws'];
+
+function validateScope(scope) {
+  if (!scope) return 'mcp:tools';
+  const requested = scope.split(/\s+/).filter(Boolean);
+  const valid = requested.filter(s => SUPPORTED_SCOPES.includes(s));
+  return valid.length > 0 ? valid.join(' ') : 'mcp:tools';
+}
+
 async function handleAuthorizeSubmit(request, url, env) {
   const formData = await request.formData();
   const action = formData.get('action');
   const clientId = formData.get('client_id');
   const redirectUri = formData.get('redirect_uri');
-  const scope = formData.get('scope');
+  const scope = validateScope(formData.get('scope'));
   const state = formData.get('state');
   const codeChallenge = formData.get('code_challenge');
   const codeChallengeMethod = formData.get('code_challenge_method');
