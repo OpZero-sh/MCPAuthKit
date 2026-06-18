@@ -191,6 +191,20 @@ export default {
         return await handleLogin(request, env);
       }
 
+      // ── Password Reset ──
+      if (path === '/auth/forgot' && method === 'GET') {
+        return new Response(getForgotFormHTML(), { headers: { 'Content-Type': 'text/html' } });
+      }
+      if (path === '/auth/forgot' && method === 'POST') {
+        return await handleForgotPassword(request, env);
+      }
+      if (path === '/auth/reset' && method === 'GET') {
+        return await handleResetPage(request, env);
+      }
+      if (path === '/auth/reset' && method === 'POST') {
+        return await handleResetPassword(request, env);
+      }
+
       // ── Health ──
       if (path === '/health') {
         return jsonResponse({ status: 'ok', service: 'mcp-authkit', version: '0.1.0' });
@@ -767,6 +781,160 @@ async function handleLogin(request, env) {
   return jsonResponse({ user_id: user.id, email: user.email, name: user.name, session_token: sessionToken });
 }
 
+// ─── Password Reset ─────────────────────────────────────────────────────────
+//
+// Reset tokens live in D1 (mirroring auth_codes: short-lived, single-use,
+// user_id references Neon authkit_users with no FK). Only the password update
+// itself touches the canonical Neon row. The reset link host is derived from
+// the incoming request, so it follows whatever domain serves the worker.
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;   // reset link valid for 1 hour
+const RESET_THROTTLE_MS = 5 * 60 * 1000;     // don't re-send while a fresh token is live
+
+async function handleForgotPassword(request, env) {
+  const formData = await request.formData();
+  const email = (formData.get('email') || '').toString().trim().toLowerCase();
+
+  // Respond identically whether or not the account exists — no user enumeration.
+  const genericPage = () => new Response(
+    getAuthMessageHTML({
+      heading: 'Check your email',
+      message: 'If an account exists for that address, a password reset link is on its way. It expires in 1 hour.',
+    }),
+    { headers: { 'Content-Type': 'text/html' } }
+  );
+
+  if (!email || !email.includes('@')) {
+    return genericPage();
+  }
+
+  try {
+    const sql = getNeonSql(env);
+    const rows = await sql`SELECT id, email FROM authkit_users WHERE email = ${email}`;
+    const user = rows[0];
+    if (user) {
+      const nowIso = new Date().toISOString();
+      // Throttle reset-email bombing: if a fresh unused token already exists,
+      // don't mint and send another one.
+      const recent = await env.DB
+        .prepare('SELECT created_at FROM password_reset_tokens WHERE user_id = ? AND used = 0 AND expires_at > ? ORDER BY created_at DESC LIMIT 1')
+        .bind(user.id, nowIso).first();
+      const recentlySent = recent && (Date.now() - new Date(recent.created_at).getTime()) < RESET_THROTTLE_MS;
+
+      if (!recentlySent) {
+        const token = generateId('rst_', 40);
+        const tokenHash = await sha256(token);
+        const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
+        await env.DB
+          .prepare('INSERT INTO password_reset_tokens (token_hash, user_id, email, expires_at, used, created_at) VALUES (?, ?, ?, ?, 0, ?)')
+          .bind(tokenHash, user.id, user.email, expiresAt, nowIso).run();
+
+        const resetUrl = `${new URL(request.url).origin}/auth/reset?token=${token}`;
+        await sendResetEmail(env, { to: user.email, resetUrl });
+      }
+    }
+  } catch (e) {
+    // Never surface internal state to the requester; log for ops.
+    console.error('forgot-password failed:', e?.message);
+  }
+
+  return genericPage();
+}
+
+async function handleResetPage(request, env) {
+  const token = new URL(request.url).searchParams.get('token') || '';
+  const record = await lookupResetToken(env, token);
+  if (!record) {
+    return new Response(getExpiredLinkHTML(), { headers: { 'Content-Type': 'text/html' }, status: 400 });
+  }
+  return new Response(getResetFormHTML(token), { headers: { 'Content-Type': 'text/html' } });
+}
+
+async function handleResetPassword(request, env) {
+  const formData = await request.formData();
+  const token = (formData.get('token') || '').toString();
+  const password = (formData.get('password') || '').toString();
+
+  if (password.length < 8) {
+    return new Response(getResetFormHTML(token, 'Password must be at least 8 characters.'), {
+      headers: { 'Content-Type': 'text/html' }, status: 400,
+    });
+  }
+
+  const record = await lookupResetToken(env, token);
+  if (!record) {
+    return new Response(getExpiredLinkHTML(), { headers: { 'Content-Type': 'text/html' }, status: 400 });
+  }
+
+  const tokenHash = await sha256(token);
+  const passwordHash = await sha256(password + (env.SALT || 'mcp-authkit-salt'));
+
+  // Update the canonical password in Neon, burn the token, then revoke the
+  // user's live sessions so a stolen pre-reset token can't outlive the change.
+  const sql = getNeonSql(env);
+  await sql`UPDATE authkit_users SET password_hash = ${passwordHash} WHERE id = ${record.user_id}`;
+
+  await env.DB.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token_hash = ?').bind(tokenHash).run();
+  await env.DB.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?').bind(record.user_id).run();
+  await env.DB.prepare('UPDATE access_tokens SET revoked = 1 WHERE user_id = ?').bind(record.user_id).run();
+
+  // Mirror the revocation into Neon so OpZero's shared-DB validation also
+  // rejects pre-reset access tokens immediately (matches /oauth/revoke).
+  try {
+    await sql`UPDATE authkit_access_tokens SET revoked = 1 WHERE user_id = ${record.user_id}`;
+  } catch (e) {
+    console.error('Neon token revoke on reset failed:', e?.message);
+  }
+
+  return new Response(
+    getAuthMessageHTML({
+      heading: 'Password updated',
+      message: 'Your password has been reset. Head back to the app and log in with your new password.',
+    }),
+    { headers: { 'Content-Type': 'text/html' } }
+  );
+}
+
+async function lookupResetToken(env, token) {
+  if (!token) return null;
+  const tokenHash = await sha256(token);
+  const row = await env.DB
+    .prepare('SELECT token_hash, user_id, email, expires_at, used FROM password_reset_tokens WHERE token_hash = ?')
+    .bind(tokenHash).first();
+  if (!row || row.used) return null;
+  if (new Date(row.expires_at) < new Date()) return null;
+  return row;
+}
+
+async function sendResetEmail(env, { to, resetUrl }) {
+  if (!env.RESEND_API_KEY) {
+    console.error('RESEND_API_KEY not configured — reset email not sent for', to);
+    return;
+  }
+  const from = env.RESEND_FROM || 'OpZero <no-reply@auth.opzero.sh>';
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to,
+        subject: 'Reset your OpZero password',
+        html: getResetEmailHTML(resetUrl),
+        text: `Reset your OpZero password:\n\n${resetUrl}\n\nThis link expires in 1 hour. If you didn't request it, you can ignore this email.`,
+      }),
+    });
+    if (!res.ok) {
+      console.error('Resend send failed:', res.status, await res.text().catch(() => ''));
+    }
+  } catch (e) {
+    console.error('Resend send threw:', e?.message);
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function redirectWithError(redirectUri, state, error, description) {
@@ -954,8 +1122,11 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
     .btn-allow:hover { background: #16a34a; }
     .btn-deny { background: transparent; border: 1px solid #404040; color: #a3a3a3; }
     .btn-deny:hover { border-color: #737373; color: #e5e5e5; }
-    .error { background: #371520; border: 1px solid #5c1d2e; color: #f87171; padding: 10px 14px; 
+    .error { background: #371520; border: 1px solid #5c1d2e; color: #f87171; padding: 10px 14px;
              border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+    .forgot { text-align: right; margin: -6px 0 4px; }
+    .forgot a { color: #22c55e; font-size: 12px; text-decoration: none; }
+    .forgot a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -1001,6 +1172,8 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
         <input type="password" id="password" name="password" placeholder="••••••••" required minlength="8" />
       </div>
 
+      <div class="forgot"><a href="/auth/forgot">Forgot password?</a></div>
+
       <div class="actions">
         <button type="submit" name="action" value="deny" class="btn btn-deny">Deny</button>
         <button type="submit" name="action" value="allow" class="btn btn-allow">Allow</button>
@@ -1018,6 +1191,110 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
   </script>
 </body>
 </html>`;
+}
+
+// ─── Password Reset UI ───────────────────────────────────────────────────────
+
+const AUTH_PAGE_STYLE = `
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0a; color: #e5e5e5; min-height: 100vh;
+      display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .card { background: #141414; border: 1px solid #262626; border-radius: 16px;
+      padding: 40px; max-width: 420px; width: 100%; }
+    .logo { font-size: 14px; color: #737373; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 24px; }
+    .logo span { color: #22c55e; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; color: #fafafa; }
+    .subtitle { color: #a3a3a3; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 13px; color: #a3a3a3; margin-bottom: 6px; }
+    .field input { width: 100%; padding: 10px 14px; background: #0a0a0a; border: 1px solid #262626;
+      border-radius: 8px; color: #fafafa; font-size: 14px; outline: none; transition: border 0.2s; }
+    .field input:focus { border-color: #22c55e; }
+    .btn { width: 100%; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600;
+      cursor: pointer; border: none; background: #22c55e; color: #0a0a0a; transition: all 0.2s; }
+    .btn:hover { background: #16a34a; }
+    .error { background: #371520; border: 1px solid #5c1d2e; color: #f87171; padding: 10px 14px;
+      border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+    .muted { color: #a3a3a3; font-size: 14px; line-height: 1.6; }
+    .backlink { display: inline-block; margin-top: 20px; color: #22c55e; text-decoration: none; font-size: 13px; }
+    .backlink:hover { text-decoration: underline; }
+`;
+
+function authPage(title, inner) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} — MCP AuthKit</title>
+  <style>${AUTH_PAGE_STYLE}</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">MCP <span>AuthKit</span></div>
+    ${inner}
+  </div>
+</body>
+</html>`;
+}
+
+function getForgotFormHTML(error) {
+  return authPage('Reset password', `
+    <h1>Reset your password</h1>
+    <p class="subtitle">Enter your account email and we'll send you a link to set a new password.</p>
+    ${error ? `<div class="error">${error}</div>` : ''}
+    <form method="POST" action="/auth/forgot">
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus />
+      </div>
+      <button type="submit" class="btn">Send reset link</button>
+    </form>`);
+}
+
+function getResetFormHTML(token, error) {
+  return authPage('Set new password', `
+    <h1>Set a new password</h1>
+    <p class="subtitle">Choose a new password for your account.</p>
+    ${error ? `<div class="error">${error}</div>` : ''}
+    <form method="POST" action="/auth/reset">
+      <input type="hidden" name="token" value="${escapeAttr(token)}" />
+      <div class="field">
+        <label for="password">New password</label>
+        <input type="password" id="password" name="password" placeholder="••••••••" required minlength="8" autofocus />
+      </div>
+      <button type="submit" class="btn">Update password</button>
+    </form>`);
+}
+
+function getAuthMessageHTML({ heading, message, linkHref, linkText }) {
+  return authPage(heading, `
+    <h1>${heading}</h1>
+    <p class="muted">${message}</p>
+    ${linkHref ? `<a class="backlink" href="${linkHref}">${linkText || 'Back'}</a>` : ''}`);
+}
+
+function getExpiredLinkHTML() {
+  return getAuthMessageHTML({
+    heading: 'Link expired',
+    message: 'This password reset link is invalid or has expired. Request a new one from the login screen.',
+    linkHref: '/auth/forgot',
+    linkText: 'Request a new link',
+  });
+}
+
+function getResetEmailHTML(resetUrl) {
+  return `<!DOCTYPE html>
+<html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0a0a0a; color:#e5e5e5; padding:40px;">
+  <div style="max-width:480px;margin:0 auto;background:#141414;border:1px solid #262626;border-radius:16px;padding:40px;">
+    <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#737373;margin-bottom:24px;">MCP <span style="color:#22c55e;">AuthKit</span></div>
+    <h1 style="font-size:20px;color:#fafafa;margin:0 0 12px;">Reset your password</h1>
+    <p style="color:#a3a3a3;font-size:14px;line-height:1.6;margin:0 0 24px;">We received a request to reset your OpZero password. Click below to choose a new one. This link expires in 1 hour.</p>
+    <a href="${resetUrl}" style="display:inline-block;background:#22c55e;color:#0a0a0a;font-weight:600;font-size:14px;text-decoration:none;padding:12px 24px;border-radius:10px;">Reset password</a>
+    <p style="color:#525252;font-size:12px;line-height:1.6;margin:24px 0 0;">If you didn't request this, you can safely ignore this email. The link only works once:<br><span style="color:#737373;word-break:break-all;">${resetUrl}</span></p>
+  </div>
+</body></html>`;
 }
 
 // ─── Landing Page HTML ───────────────────────────────────────────────────────

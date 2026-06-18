@@ -90,6 +90,19 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 );
 
 -----------------------------------------------------------
+-- Password reset tokens (short-lived, single-use)
+-- user_id references Neon authkit_users (no D1 FK)
+-----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  token_hash    TEXT PRIMARY KEY,            -- SHA-256 of rst_xxx
+  user_id       TEXT NOT NULL,              -- Neon authkit_users.id
+  email         TEXT NOT NULL,
+  expires_at    TEXT NOT NULL,              -- 1 hour from creation
+  used          INTEGER DEFAULT 0,
+  created_at    TEXT DEFAULT (datetime('now'))
+);
+
+-----------------------------------------------------------
 -- Indexes
 -----------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -99,3 +112,5 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_auth_codes_client ON auth_codes(client_id);
 CREATE INDEX IF NOT EXISTS idx_auth_codes_expires ON auth_codes(expires_at);
+CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_expires ON password_reset_tokens(expires_at);

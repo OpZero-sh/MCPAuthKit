@@ -4,9 +4,12 @@ compatibility_date = "2024-12-01"
 
 [vars]
 SALT = "change-me-to-a-random-string"
+# Sender for password-reset emails. Must be a Resend-verified domain.
+RESEND_FROM = "OpZero <no-reply@auth.opzero.sh>"
 
-# Set via: wrangler secret put ADMIN_KEY
-# Used to authenticate /api/servers registration endpoint
+# Secrets (set via wrangler secret put):
+#   wrangler secret put ADMIN_KEY        # auth for /api/servers registration
+#   wrangler secret put RESEND_API_KEY   # Resend key for password-reset email
 
 [[d1_databases]]
 binding = "DB"
