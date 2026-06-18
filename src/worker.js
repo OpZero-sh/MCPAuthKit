@@ -1345,7 +1345,7 @@ function getLandingHTML() {
       <span class="comment">// GET /.well-known/oauth-protected-resource</span><br>
       {<br>
       &nbsp;&nbsp;<span class="key">"resource"</span>: <span class="string">"https://your-mcp.com/mcp"</span>,<br>
-      &nbsp;&nbsp;<span class="key">"authorization_servers"</span>: [<span class="string">"https://authkit.opzero.sh"</span>],<br>
+      &nbsp;&nbsp;<span class="key">"authorization_servers"</span>: [<span class="string">"https://auth.opzero.sh"</span>],<br>
       &nbsp;&nbsp;<span class="key">"bearer_methods_supported"</span>: [<span class="string">"header"</span>]<br>
       }<br><br>
       <span class="comment">// That's it. AuthKit handles everything else:</span><br>
