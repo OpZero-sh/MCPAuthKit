@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Validate worker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pin the SALT in wrangler.toml [vars].
+      #
+      # WHY: SALT is the password-hashing salt. Every stored password hash is
+      # derived from this exact value. Rotating it silently invalidates ALL
+      # existing password hashes and locks every user out. A salt change must
+      # ONLY happen as part of a coordinated password-hash migration, never as
+      # a drive-by edit. This guard fails the build if the [vars] SALT value is
+      # anything other than the known literal.
+      - name: Guard - wrangler.toml SALT must not be rotated
+        run: |
+          expected='SALT = "change-me-to-a-random-string"'
+          if ! grep -qxF "$expected" wrangler.toml; then
+            echo "::error file=wrangler.toml::SALT in [vars] has changed from the pinned literal."
+            echo "Rotating SALT invalidates every stored password hash and locks out all users."
+            echo "It must only change as part of a coordinated password-hash migration."
+            echo "---- expected line ----"
+            echo "$expected"
+            echo "---- actual SALT line(s) ----"
+            grep -n '^[[:space:]]*SALT[[:space:]]*=' wrangler.toml || echo "(no SALT line found)"
+            exit 1
+          fi
+          echo "SALT is pinned to the expected literal."
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check worker
+        run: node --check src/worker.js
+
+      # Validates the Worker bundle (entrypoint, imports, wrangler.toml config)
+      # without deploying. Does not require Cloudflare credentials.
+      - name: Wrangler dry-run build
+        run: npx --no-install wrangler deploy --dry-run --outdir dist
+
