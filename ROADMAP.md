@@ -1,6 +1,6 @@
 # MCPAuthKit Roadmap
 
-MCPAuthKit is the **hosted OAuth 2.1 layer for the whole OpZero platform** — a single Cloudflare Worker (`src/worker.js`) with a D1-backed token store. It implements MCP's full OAuth surface (RFC 9728 / 8414 / 7591 discovery + dynamic registration, PKCE S256, consent, `mat_` access tokens, and rotating refresh tokens with replay-family revocation). It authenticates **CodeZ / CodeZero**, **codez-hub** (machine `agent:ws` connections), and the **deploy MCP** through one authorization server. Today it runs at `authkit.open0p.com`; the platform is consolidating it under `authkit.opzero.sh`.
+MCPAuthKit is the **hosted OAuth 2.1 layer for the whole OpZero platform** — a single Cloudflare Worker (`src/worker.js`) with a D1-backed token store. It implements MCP's full OAuth surface (RFC 9728 / 8414 / 7591 discovery + dynamic registration, PKCE S256, consent, `mat_` access tokens, and rotating refresh tokens with replay-family revocation). It authenticates **CodeZ / CodeZero**, **codez-hub** (machine `agent:ws` connections), and the **deploy MCP** through one authorization server. Today it runs at `auth.opzero.sh`; the platform is consolidating it under `auth.opzero.sh`.
 
 See the [OpZero platform roadmap](https://github.com/OpZero-sh/.github/blob/main/ROADMAP.md) for the north star and phase map.
 
@@ -16,7 +16,7 @@ See the [OpZero platform roadmap](https://github.com/OpZero-sh/.github/blob/main
 - ✅ **Rotating refresh tokens + replay-family revocation.** `/oauth/token` refresh grant rotates the token and, on replay of a revoked token, revokes the entire `family_id` (`worker.js` ~L586–593, commits `c7fcc57`/`a30ba36`). This is the reliability backbone for always-on agents.
 - ✅ **Scope validation + `agent:ws` scope** for codez-hub machine connections (`worker.js` authorize/token paths, commits `c4dc1ba`/`7fa99e0`).
 - ⚪ **Single MCPAuthKit consent for both surfaces (Phase 1/2)** — one consent issues **one token family per `user_id`** covering the CodeZ UI session *and* the `code.opzero.sh/mcp` connector. The hub keys each machine DO by the token's `user_id`, so UI + machine agent must resolve to the same user.
-- ⚪ **Repoint `authkit.opzero.sh` to this worker (Phase 1).** Add the custom hostname via CNAME → Cloudflare for SaaS (the `[env.production]` route in `wrangler.toml` is still commented out; `authkit.opzero.sh` currently resolves to Vercel). Watch the CAA gotcha noted in the hub RUNBOOK. Keep `authkit.open0p.com` as a redirect during cutover.
+- ⚪ **Repoint `auth.opzero.sh` to this worker (Phase 1).** Add the custom hostname via CNAME → Cloudflare for SaaS (the `[env.production]` route in `wrangler.toml` is still commented out; `auth.opzero.sh` currently resolves to Vercel). Watch the CAA gotcha noted in the hub RUNBOOK. Keep `authkit.open0p.com` as a redirect during cutover.
 
 ---
 

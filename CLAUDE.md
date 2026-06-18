@@ -4,7 +4,7 @@
 
 OAuth 2.1 gateway for MCP servers, deployed on Cloudflare Workers with D1 (SQLite) as the database. This is the Cloudflare-hosted variant — the Vercel variant lives in `mcp-authkit-vercel`.
 
-**Production URL**: https://authkit.open0p.com
+**Production URL**: https://auth.opzero.sh
 
 ## Production status
 
@@ -86,15 +86,15 @@ bash scripts/test-flow.sh
 
 # Manual checks:
 # 1. Health / metadata
-curl https://authkit.open0p.com/.well-known/oauth-authorization-server
+curl https://auth.opzero.sh/.well-known/oauth-authorization-server
 
 # 2. Register test client
-curl -X POST https://authkit.open0p.com/oauth/register \
+curl -X POST https://auth.opzero.sh/oauth/register \
   -H "Content-Type: application/json" \
   -d '{"redirect_uris":["http://localhost:3000/callback"],"client_name":"test"}'
 
 # 3. List servers (admin)
-curl https://authkit.open0p.com/api/servers \
+curl https://auth.opzero.sh/api/servers \
   -H "Authorization: Bearer $ADMIN_KEY"
 
 # 4. Tail production logs for debugging

@@ -15,7 +15,7 @@ discovery, registration, consent, tokens -- so your MCP server doesn't have to.
 [![MCP](https://img.shields.io/badge/Protocol-MCP-8B5CF6)](https://modelcontextprotocol.io)
 [![RFC 9728](https://img.shields.io/badge/RFC-9728-informational)](https://www.rfc-editor.org/rfc/rfc9728)
 
-Running in production at [authkit.open0p.com](https://authkit.open0p.com), powering OAuth for [OpZero.sh](https://opzero.sh).
+Running in production at [auth.opzero.sh](https://auth.opzero.sh), powering OAuth for [OpZero.sh](https://opzero.sh).
 
 [Get Started](#quick-start) &#183; [How It Works](#how-it-works) &#183; [API Reference](#api-reference) &#183; [The War Story](#the-war-story)
 
