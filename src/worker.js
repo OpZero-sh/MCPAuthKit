@@ -1080,58 +1080,70 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authorize ${clientName} — MCP AuthKit</title>
+  <title>Authorize ${clientName} — OpZero</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
+    body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0a0a0a; color: #e5e5e5; min-height: 100vh;
+      background: #050507; color: #e5e5e5; min-height: 100vh;
       display: flex; align-items: center; justify-content: center;
-      padding: 20px;
+      padding: 20px; position: relative; overflow: hidden;
+    }
+    body::before {
+      content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.6;
+      background:
+        radial-gradient(ellipse at top, rgba(0,245,255,0.12), transparent 55%),
+        radial-gradient(ellipse at bottom, rgba(139,92,246,0.10), transparent 60%);
     }
     .card {
-      background: #141414; border: 1px solid #262626; border-radius: 16px;
+      position: relative; z-index: 1;
+      background: rgba(13,13,18,0.72); backdrop-filter: blur(16px);
+      border: 1px solid rgba(0,245,255,0.18); border-radius: 16px;
       padding: 40px; max-width: 420px; width: 100%;
+      box-shadow: 0 20px 80px -20px rgba(0,245,255,0.25);
     }
-    .logo { font-size: 14px; color: #737373; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 24px; }
-    .logo span { color: #22c55e; }
+    .logo { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 4px;
+      background: linear-gradient(90deg, #00F5FF, #8B5CF6); -webkit-background-clip: text;
+      background-clip: text; -webkit-text-fill-color: transparent; }
+    .tagline { font-size: 10px; color: #737373; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 28px; }
     h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; color: #fafafa; }
     .subtitle { color: #a3a3a3; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
-    .client-name { color: #22c55e; font-weight: 600; }
+    .client-name { color: #00F5FF; font-weight: 600; }
     .scopes { margin-bottom: 24px; }
-    .scope { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #1f1f1f; font-size: 14px; }
+    .scope { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 14px; }
     .scope:last-child { border-bottom: none; }
-    .scope-icon { color: #22c55e; font-size: 16px; }
-    .divider { height: 1px; background: #262626; margin: 24px 0; }
+    .scope-icon { color: #00F5FF; font-size: 16px; }
+    .divider { height: 1px; background: rgba(255,255,255,0.08); margin: 24px 0; }
     .tabs { display: flex; gap: 0; margin-bottom: 20px; }
-    .tab { flex: 1; padding: 10px; text-align: center; font-size: 13px; cursor: pointer; 
-           border: 1px solid #262626; color: #737373; transition: all 0.2s; background: transparent; }
+    .tab { flex: 1; padding: 10px; text-align: center; font-size: 13px; cursor: pointer;
+           border: 1px solid rgba(255,255,255,0.10); color: #737373; transition: all 0.2s; background: transparent; }
     .tab:first-child { border-radius: 8px 0 0 8px; }
     .tab:last-child { border-radius: 0 8px 8px 0; }
-    .tab.active { background: #1a1a1a; color: #fafafa; border-color: #404040; }
+    .tab.active { background: rgba(0,245,255,0.08); color: #fafafa; border-color: rgba(0,245,255,0.35); }
     .field { margin-bottom: 16px; }
     .field label { display: block; font-size: 13px; color: #a3a3a3; margin-bottom: 6px; }
-    .field input { width: 100%; padding: 10px 14px; background: #0a0a0a; border: 1px solid #262626; 
-                   border-radius: 8px; color: #fafafa; font-size: 14px; outline: none; transition: border 0.2s; }
-    .field input:focus { border-color: #22c55e; }
+    .field input { width: 100%; padding: 10px 14px; background: rgba(5,5,7,0.6); border: 1px solid rgba(255,255,255,0.12);
+                   border-radius: 8px; color: #fafafa; font-size: 14px; outline: none; transition: all 0.2s; }
+    .field input:focus { border-color: #00F5FF; box-shadow: 0 0 0 3px rgba(0,245,255,0.12); }
     .name-field { display: none; }
     .actions { display: flex; gap: 12px; margin-top: 24px; }
-    .btn { flex: 1; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600; 
+    .btn { flex: 1; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600;
            cursor: pointer; border: none; transition: all 0.2s; }
-    .btn-allow { background: #22c55e; color: #0a0a0a; }
-    .btn-allow:hover { background: #16a34a; }
-    .btn-deny { background: transparent; border: 1px solid #404040; color: #a3a3a3; }
+    .btn-allow { background: linear-gradient(90deg, #00F5FF, #8B5CF6); color: #050507; }
+    .btn-allow:hover { filter: brightness(1.08); box-shadow: 0 0 20px rgba(0,245,255,0.35); }
+    .btn-deny { background: transparent; border: 1px solid rgba(255,255,255,0.15); color: #a3a3a3; }
     .btn-deny:hover { border-color: #737373; color: #e5e5e5; }
     .error { background: #371520; border: 1px solid #5c1d2e; color: #f87171; padding: 10px 14px;
              border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
     .forgot { text-align: right; margin: -6px 0 4px; }
-    .forgot a { color: #22c55e; font-size: 12px; text-decoration: none; }
+    .forgot a { color: #00F5FF; font-size: 12px; text-decoration: none; }
     .forgot a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="logo">🔐 MCP <span>AuthKit</span></div>
+    <div class="logo">OpZero</div>
+    <div class="tagline">Account Access</div>
     <h1>Authorize Connection</h1>
     <p class="subtitle"><span class="client-name">${clientName}</span> wants to connect to your account and access the following:</p>
     
@@ -1198,26 +1210,36 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
 const AUTH_PAGE_STYLE = `
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0a0a0a; color: #e5e5e5; min-height: 100vh;
-      display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .card { background: #141414; border: 1px solid #262626; border-radius: 16px;
-      padding: 40px; max-width: 420px; width: 100%; }
-    .logo { font-size: 14px; color: #737373; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 24px; }
-    .logo span { color: #22c55e; }
+      background: #050507; color: #e5e5e5; min-height: 100vh;
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+      position: relative; overflow: hidden; }
+    body::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.6;
+      background:
+        radial-gradient(ellipse at top, rgba(0,245,255,0.12), transparent 55%),
+        radial-gradient(ellipse at bottom, rgba(139,92,246,0.10), transparent 60%); }
+    .card { position: relative; z-index: 1;
+      background: rgba(13,13,18,0.72); backdrop-filter: blur(16px);
+      border: 1px solid rgba(0,245,255,0.18); border-radius: 16px;
+      padding: 40px; max-width: 420px; width: 100%;
+      box-shadow: 0 20px 80px -20px rgba(0,245,255,0.25); }
+    .logo { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 4px;
+      background: linear-gradient(90deg, #00F5FF, #8B5CF6); -webkit-background-clip: text;
+      background-clip: text; -webkit-text-fill-color: transparent; }
+    .tagline { font-size: 10px; color: #737373; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 28px; }
     h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; color: #fafafa; }
     .subtitle { color: #a3a3a3; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
     .field { margin-bottom: 16px; }
     .field label { display: block; font-size: 13px; color: #a3a3a3; margin-bottom: 6px; }
-    .field input { width: 100%; padding: 10px 14px; background: #0a0a0a; border: 1px solid #262626;
-      border-radius: 8px; color: #fafafa; font-size: 14px; outline: none; transition: border 0.2s; }
-    .field input:focus { border-color: #22c55e; }
+    .field input { width: 100%; padding: 10px 14px; background: rgba(5,5,7,0.6); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; color: #fafafa; font-size: 14px; outline: none; transition: all 0.2s; }
+    .field input:focus { border-color: #00F5FF; box-shadow: 0 0 0 3px rgba(0,245,255,0.12); }
     .btn { width: 100%; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600;
-      cursor: pointer; border: none; background: #22c55e; color: #0a0a0a; transition: all 0.2s; }
-    .btn:hover { background: #16a34a; }
+      cursor: pointer; border: none; background: linear-gradient(90deg, #00F5FF, #8B5CF6); color: #050507; transition: all 0.2s; }
+    .btn:hover { filter: brightness(1.08); box-shadow: 0 0 20px rgba(0,245,255,0.35); }
     .error { background: #371520; border: 1px solid #5c1d2e; color: #f87171; padding: 10px 14px;
       border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
     .muted { color: #a3a3a3; font-size: 14px; line-height: 1.6; }
-    .backlink { display: inline-block; margin-top: 20px; color: #22c55e; text-decoration: none; font-size: 13px; }
+    .backlink { display: inline-block; margin-top: 20px; color: #00F5FF; text-decoration: none; font-size: 13px; }
     .backlink:hover { text-decoration: underline; }
 `;
 
@@ -1227,12 +1249,13 @@ function authPage(title, inner) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} — MCP AuthKit</title>
+  <title>${title} — OpZero</title>
   <style>${AUTH_PAGE_STYLE}</style>
 </head>
 <body>
   <div class="card">
-    <div class="logo">MCP <span>AuthKit</span></div>
+    <div class="logo">OpZero</div>
+    <div class="tagline">Account Access</div>
     ${inner}
   </div>
 </body>
@@ -1287,11 +1310,11 @@ function getExpiredLinkHTML() {
 function getResetEmailHTML(resetUrl) {
   return `<!DOCTYPE html>
 <html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0a0a0a; color:#e5e5e5; padding:40px;">
-  <div style="max-width:480px;margin:0 auto;background:#141414;border:1px solid #262626;border-radius:16px;padding:40px;">
-    <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#737373;margin-bottom:24px;">MCP <span style="color:#22c55e;">AuthKit</span></div>
+  <div style="max-width:480px;margin:0 auto;background:#0d0d12;border:1px solid #1c2330;border-radius:16px;padding:40px;">
+    <div style="font-size:18px;font-weight:700;letter-spacing:0.5px;color:#00F5FF;margin-bottom:24px;">OpZero</div>
     <h1 style="font-size:20px;color:#fafafa;margin:0 0 12px;">Reset your password</h1>
     <p style="color:#a3a3a3;font-size:14px;line-height:1.6;margin:0 0 24px;">We received a request to reset your OpZero password. Click below to choose a new one. This link expires in 1 hour.</p>
-    <a href="${resetUrl}" style="display:inline-block;background:#22c55e;color:#0a0a0a;font-weight:600;font-size:14px;text-decoration:none;padding:12px 24px;border-radius:10px;">Reset password</a>
+    <a href="${resetUrl}" style="display:inline-block;background:#00F5FF;color:#050507;font-weight:600;font-size:14px;text-decoration:none;padding:12px 24px;border-radius:10px;">Reset password</a>
     <p style="color:#525252;font-size:12px;line-height:1.6;margin:24px 0 0;">If you didn't request this, you can safely ignore this email. The link only works once:<br><span style="color:#737373;word-break:break-all;">${resetUrl}</span></p>
   </div>
 </body></html>`;
