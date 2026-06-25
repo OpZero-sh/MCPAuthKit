@@ -1,4 +1,4 @@
-<div align="center">
+
 
 # MCP AuthKit
 
@@ -16,7 +16,9 @@ discovery, registration, consent, tokens -- so your MCP server doesn't have to.
 [![RFC 9728](https://img.shields.io/badge/RFC-9728-informational)](https://www.rfc-editor.org/rfc/rfc9728)
 
 Running in production at [auth.opzero.sh](https://auth.opzero.sh), powering OAuth for [OpZero.sh](https://opzero.sh).
-
+<img width="631" height="871" alt="Screenshot 2026-06-25 at 11 45 05 AM" src="https://github.com/user-attachments/assets/b4d049ba-03e2-47fa-8989-f836061c2cf6" />
+<div align="center">
+  
 [Get Started](#quick-start) &#183; [How It Works](#how-it-works) &#183; [API Reference](#api-reference) &#183; [The War Story](#the-war-story)
 
 </div>
