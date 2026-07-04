@@ -1168,6 +1168,7 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
       <input type="hidden" name="code_challenge" value="${codeChallenge || ''}" />
       <input type="hidden" name="code_challenge_method" value="${codeChallengeMethod}" />
       <input type="hidden" name="auth_mode" value="login" id="auth-mode" />
+      <input type="hidden" name="action" value="allow" id="action-field" />
 
       <div class="field name-field" id="name-field">
         <label for="name">Name</label>
@@ -1187,13 +1188,20 @@ function getConsentHTML({ clientName, clientId, redirectUri, scope, state, codeC
       <div class="forgot"><a href="/auth/forgot">Forgot password?</a></div>
 
       <div class="actions">
-        <button type="submit" name="action" value="deny" class="btn btn-deny">Deny</button>
-        <button type="submit" name="action" value="allow" class="btn btn-allow">Allow</button>
+        <!-- Deny must not be a submit button: implicit submission (Enter key /
+             mobile "Go") uses the form's first submit button, which sent
+             action=deny for users who approved. -->
+        <button type="button" class="btn btn-deny" onclick="denyAccess()">Deny</button>
+        <button type="submit" class="btn btn-allow">Allow</button>
       </div>
     </form>
   </div>
 
   <script>
+    function denyAccess() {
+      document.getElementById('action-field').value = 'deny';
+      document.getElementById('auth-form').submit();
+    }
     function switchTab(mode) {
       document.getElementById('auth-mode').value = mode;
       document.getElementById('tab-login').classList.toggle('active', mode === 'login');
