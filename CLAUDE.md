@@ -1,5 +1,29 @@
 # CLAUDE.md — MCP AuthKit (Cloudflare)
 
+> ## MONOREPO MIGRATION — READ FIRST
+>
+> **This repo is being consolidated into the `platform` monorepo
+> (`OpZero-sh/platform`). Do NEW development there, not here.**
+>
+> | This repo | Canonical location in `platform` |
+> |-----------|----------------------------------|
+> | `src/` (OAuth Worker) | **`mcps/auth`** (`@opzero/auth`) |
+> | SHA-256 / token validation / scopes | **`packages/auth-core`** (shared) |
+>
+> The monorepo build is green (`npx turbo typecheck` + `build`) and is the
+> source of truth going forward. Changes made only in this repo drift out of
+> sync — every fix then has to be hand-ported into `platform` (see that repo's
+> `fix(auth): port …` commit history). Don't create that work.
+>
+> The **only** reason to touch this repo is an emergency production hotfix for a
+> service not yet cut over. If you must, port the same change into
+> `platform/mcps/auth` (or `packages/auth-core`) in the same session.
+>
+> Full status, deferred items, and open questions:
+> **`platform/context/migration-status.md`**. This repo is archived once prod
+> cutover, publish, and CI-secret setup land. (The `mcp-authkit-vercel`
+> Vercel/Turso variant stays a separate repo — it is not part of this migration.)
+
 ## What this repo is
 
 OAuth 2.1 gateway for MCP servers, deployed on Cloudflare Workers with D1 (SQLite) as the database. This is the Cloudflare-hosted variant — the Vercel variant lives in `mcp-authkit-vercel`.
